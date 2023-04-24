@@ -1,0 +1,6 @@
+name: ItemSigning
+version: '${version}'
+main: kacper0510.itemsigning.ItemSigning
+api-version: 1.19
+authors: [ Kacper0510 ]
+description: Allows you to add lore and sign items using books
