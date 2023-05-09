@@ -10,25 +10,51 @@ import org.bukkit.event.inventory.PrepareSmithingEvent;
 import org.bukkit.event.inventory.SmithItemEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
+import sun.misc.Unsafe;
+
 import java.util.Objects;
 
 public final class ItemSigning extends JavaPlugin implements Listener {
-    @Override
-    public void onEnable() {
-        getServer().getPluginManager().registerEvents(this, this);
+
+    // Disables an Adventure API warning through very unsafe reflection.
+    // We can't guarantee that a user doesn't use section signs in a book and that would cause a warning in the console.
+    // https://stackoverflow.com/questions/56039341/get-declared-fields-of-java-lang-reflect-fields-in-jdk12/71465198#71465198
+    private void disableAdventureLegacyWarning() {
+        try {
+            var warningField = Class.forName("net.kyori.adventure.text.TextComponentImpl")
+                                    .getDeclaredField("WARN_WHEN_LEGACY_FORMATTING_DETECTED");
+
+            var unsafeField = Unsafe.class.getDeclaredField("theUnsafe");
+            unsafeField.setAccessible(true);
+            var unsafe = (Unsafe) unsafeField.get(null);
+            unsafeField.setAccessible(false);
+
+            Object fieldBase = unsafe.staticFieldBase(warningField);
+            long fieldOffset = unsafe.staticFieldOffset(warningField);
+
+            unsafe.putBoolean(fieldBase, fieldOffset, false);
+        } catch (Exception ex) {
+            getLogger().warning("Couldn't remove Adventure warnings!");
+        }
     }
 
-    private boolean bookCheckFailure(final ItemStack book) {
-        return book == null || !book.getType().equals(Material.WRITTEN_BOOK);
-        // TODO: not second copy, not already signed in that way
+    @Override
+    public void onEnable() {
+        disableAdventureLegacyWarning();
+        getServer().getPluginManager().registerEvents(this, this);
     }
 
     @EventHandler
     public void onSmithingEvent(PrepareSmithingEvent event) {
         ItemStack book = event.getInventory().getInputMineral();
         ItemStack item = event.getInventory().getInputEquipment();
-        if (item == null || item.getType().equals(Material.WRITTEN_BOOK) || bookCheckFailure(book)) return;
+        if (item == null || SignatureBook.isInvalid(book)) return;
 
+        try {
+            new SignatureBook(book);
+        } catch (SignatureBook.SignatureException e) {
+            throw new RuntimeException(e);
+        }
         var result = item.clone();
         result.setAmount(1);
         event.setResult(result);
@@ -40,7 +66,7 @@ public final class ItemSigning extends JavaPlugin implements Listener {
         ItemStack item = Objects.requireNonNull(event.getInventory().getInputEquipment());
         ItemStack book = event.getInventory().getInputMineral();
         ItemStack result = Objects.requireNonNull(event.getCurrentItem());
-        if (bookCheckFailure(book)) return;
+        if (SignatureBook.isInvalid(book)) return;
 
         int left = item.getAmount() - 1;
         if (event.isShiftClick()) {
