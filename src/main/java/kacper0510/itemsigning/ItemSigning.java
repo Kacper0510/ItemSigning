@@ -48,16 +48,16 @@ public final class ItemSigning extends JavaPlugin implements Listener {
     public void onSmithingEvent(PrepareSmithingEvent event) {
         ItemStack book = event.getInventory().getInputMineral();
         ItemStack item = event.getInventory().getInputEquipment();
-        if (item == null || SignatureBook.isInvalid(book)) return;
+        if (item == null) return;
 
         try {
-            new SignatureBook(book);
-        } catch (SignatureBook.SignatureException e) {
-            throw new RuntimeException(e);
-        }
-        var result = item.clone();
-        result.setAmount(1);
-        event.setResult(result);
+            var sb = SignatureBook.newInstance(book);
+            var result = sb.sign(item);
+            result.setAmount(1);
+            event.setResult(result);
+        } catch (SignatureBook.SignatureException ex) {
+            event.getView().getPlayer().sendActionBar(ex.getMessageAsComponent());
+        } catch (InstantiationException ignored) {} // Not a book
     }
 
     // Inspired by https://github.com/WolfyScript/CustomCrafting/blob/master/src/main/java/me/wolfyscript/customcrafting/listeners/SmithingListener.java

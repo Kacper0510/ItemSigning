@@ -1,23 +1,34 @@
 package kacper0510.itemsigning;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.enchantments.Enchantment;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class SignatureBook {
     private final @NotNull Component signature;
+    private final boolean hideFlags, enchanted;
 
-    public SignatureBook(@NotNull final ItemStack book) throws SignatureException {
+    private SignatureBook(@NotNull final ItemStack book) throws SignatureException {
         var bookMeta = (BookMeta) book.getItemMeta();
         if (!bookMeta.hasAuthor()) throw new SignatureException("The book doesn't have an author!");
-        signature = Objects.requireNonNull(bookMeta.author());
+        signature = Objects.requireNonNull(bookMeta.author())
+                .colorIfAbsent(NamedTextColor.GOLD)
+                .decoration(TextDecoration.BOLD, false);
 
         var generation = bookMeta.hasGeneration() ? Objects.requireNonNull(bookMeta.getGeneration()) : BookMeta.Generation.ORIGINAL;
         if (generation.equals(BookMeta.Generation.COPY_OF_COPY)) throw new SignatureException("This copy cannot be used as a signature!");
@@ -25,9 +36,53 @@ public class SignatureBook {
         var text = bookMeta.pages().stream()
                 .map(LegacyComponentSerializer.legacySection()::serialize)
                 .flatMap(Pattern.compile("\n")::splitAsStream)
-                .toList();
+                .collect(Collectors.toList());
 
-        // decorationifabsent
+        hideFlags = text.removeIf("[hideflags]"::equalsIgnoreCase);
+        enchanted = text.removeIf("[enchanted]"::equalsIgnoreCase);
+        boolean allowCopies = text.removeIf("[allowcopies]"::equalsIgnoreCase);
+        // TODO: name style, multisign, custom model, custom potion color?
+
+        if (!allowCopies && generation.equals(BookMeta.Generation.COPY_OF_ORIGINAL)) throw new SignatureException("This copy cannot be used as a signature!");
+    }
+
+    public static SignatureBook newInstance(@Nullable final ItemStack book) throws SignatureException, InstantiationException {
+        if (isInvalid(book)) throw new InstantiationException();
+        return new SignatureBook(book);
+    }
+
+    public ItemStack sign(@NotNull final ItemStack item) throws SignatureException {
+        var alreadySigned = item.getItemMeta().getPersistentDataContainer().get(
+                Objects.requireNonNull(NamespacedKey.fromString("itemsigning:signed")),
+                PersistentDataType.BYTE
+        );
+        if (alreadySigned != null && alreadySigned > 0) throw new SignatureException("This item was already signed!");
+
+        var signed = item.clone();
+        var signature = Component.text("Signed by: ")
+                .color(NamedTextColor.DARK_GREEN)
+                .decorate(TextDecoration.BOLD)
+                .decoration(TextDecoration.ITALIC, false)
+                .append(this.signature);
+        signed.lore(List.of(signature));
+
+        if (hideFlags) signed.addItemFlags(ItemFlag.values());
+        if (enchanted && item.getEnchantments().size() == 0) {
+            if (item.getType().equals(Material.FISHING_ROD)) {
+                signed.addUnsafeEnchantment(Enchantment.ARROW_INFINITE, 1);
+            } else {
+                signed.addUnsafeEnchantment(Enchantment.LUCK, 1); // Luck of the Sea, so it doesn't do anything
+            }
+            signed.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+        }
+
+        signed.editMeta(meta -> meta.getPersistentDataContainer().set(
+                Objects.requireNonNull(NamespacedKey.fromString("itemsigning:signed")),
+                PersistentDataType.BYTE,
+                (byte) 1
+        ));
+
+        return signed;
     }
 
     public static boolean isInvalid(@Nullable final ItemStack book) {
@@ -37,6 +92,10 @@ public class SignatureBook {
     public static class SignatureException extends Exception {
         public SignatureException(String message) {
             super(message);
+        }
+
+        public Component getMessageAsComponent() {
+            return Component.text(getMessage()).color(NamedTextColor.RED);
         }
     }
 }
