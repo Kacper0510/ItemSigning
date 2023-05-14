@@ -1,6 +1,7 @@
 package kacper0510.itemsigning;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -14,13 +15,16 @@ import org.bukkit.persistence.PersistentDataType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class SignatureBook {
     private final @NotNull Component signature;
+    private final @NotNull List<TextComponent> comment;
     private final boolean hideFlags, enchanted;
 
     private SignatureBook(@NotNull final ItemStack book) throws SignatureException {
@@ -40,10 +44,22 @@ public class SignatureBook {
 
         hideFlags = text.removeIf("[hideflags]"::equalsIgnoreCase);
         enchanted = text.removeIf("[enchanted]"::equalsIgnoreCase);
+
         boolean allowCopies = text.removeIf("[allowcopies]"::equalsIgnoreCase);
+        if (!allowCopies && generation.equals(BookMeta.Generation.COPY_OF_ORIGINAL)) throw new SignatureException("This copy cannot be used as a signature!");
         // TODO: name style, multisign, custom model, custom potion color?
 
-        if (!allowCopies && generation.equals(BookMeta.Generation.COPY_OF_ORIGINAL)) throw new SignatureException("This copy cannot be used as a signature!");
+        var loreIndex = IntStream.range(0, text.size())
+                .filter(i -> text.get(i).equalsIgnoreCase("[lore]"))
+                .findFirst()
+                .orElse(-1);
+        comment = text.subList(loreIndex + 1, text.size()).stream()
+                .map(LegacyComponentSerializer.legacySection()::deserialize)
+                .map(comp -> (TextComponent) comp.compact())
+                .filter(comp -> !comp.content().isBlank())
+                .limit(5)
+                .map(comp -> comp.colorIfAbsent(NamedTextColor.GRAY))
+                .toList();
     }
 
     public static SignatureBook newInstance(@Nullable final ItemStack book) throws SignatureException, InstantiationException {
@@ -64,7 +80,10 @@ public class SignatureBook {
                 .decorate(TextDecoration.BOLD)
                 .decoration(TextDecoration.ITALIC, false)
                 .append(this.signature);
-        signed.lore(List.of(signature));
+        var lore = new ArrayList<>(comment);
+        lore.add(Component.empty());
+        lore.add(signature);
+        signed.lore(lore);
 
         if (hideFlags) signed.addItemFlags(ItemFlag.values());
         if (enchanted && item.getEnchantments().size() == 0) {
