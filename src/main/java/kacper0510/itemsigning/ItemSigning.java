@@ -5,14 +5,11 @@ import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.ClickType;
-import org.bukkit.event.inventory.PrepareSmithingEvent;
-import org.bukkit.event.inventory.SmithItemEvent;
+import org.bukkit.event.inventory.*;
+import org.bukkit.inventory.AnvilInventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import sun.misc.Unsafe;
-
-import java.util.Objects;
 
 public final class ItemSigning extends JavaPlugin implements Listener {
 
@@ -45,9 +42,9 @@ public final class ItemSigning extends JavaPlugin implements Listener {
     }
 
     @EventHandler
-    public void onSmithingEvent(PrepareSmithingEvent event) {
-        ItemStack book = event.getInventory().getInputMineral();
-        ItemStack item = event.getInventory().getInputEquipment();
+    public void onAnvilEvent(PrepareAnvilEvent event) {
+        ItemStack book = event.getInventory().getSecondItem();
+        ItemStack item = event.getInventory().getFirstItem();
         if (item == null) return;
 
         try {
@@ -55,17 +52,26 @@ public final class ItemSigning extends JavaPlugin implements Listener {
             var result = sb.sign(item);
             result.setAmount(1);
             event.setResult(result);
+            event.getInventory().setRepairCost(0);
         } catch (SignatureBook.SignatureException ex) {
             event.getView().getPlayer().sendActionBar(ex.getMessageAsComponent());
-        } catch (InstantiationException ignored) {} // Not a book
+            event.setResult(null);
+        } catch (InstantiationException ignored) { // Not a book
+            event.setResult(null);
+        }
     }
 
-    // Inspired by https://github.com/WolfyScript/CustomCrafting/blob/master/src/main/java/me/wolfyscript/customcrafting/listeners/SmithingListener.java
+    // Inspired by https://github.com/WolfyScript/CustomCrafting/blob/master/src/main/java/me/wolfyscript/customcrafting/listeners/AnvilListener.java
     @EventHandler
-    public void onSmithingCraftingEvent(SmithItemEvent event) {
-        ItemStack item = Objects.requireNonNull(event.getInventory().getInputEquipment());
-        ItemStack book = event.getInventory().getInputMineral();
-        ItemStack result = Objects.requireNonNull(event.getCurrentItem());
+    public void onAnvilCraftingEvent(InventoryClickEvent event) {
+        if (!event.getInventory().getType().equals(InventoryType.ANVIL)) return;
+        if (event.getSlotType() != InventoryType.SlotType.RESULT) return;
+
+        AnvilInventory inv = (AnvilInventory) event.getInventory();
+        ItemStack item = inv.getFirstItem();
+        ItemStack book = inv.getSecondItem();
+        ItemStack result = event.getCurrentItem();
+        if (result == null || result.getType().isAir() || item == null) return;
         if (SignatureBook.isInvalid(book)) return;
 
         int left = item.getAmount() - 1;
@@ -73,17 +79,6 @@ public final class ItemSigning extends JavaPlugin implements Listener {
             var newBase = event.getWhoClicked().getInventory().addItem(result.asQuantity(item.getAmount())).get(0);
             left = newBase != null ? newBase.getAmount() : 0;
             if (left == item.getAmount()) return; // Full inventory
-        } else if (event.getClick().equals(ClickType.DROP)) {
-            var playerLocation = event.getWhoClicked().getLocation();
-            var droppedItem = playerLocation.getWorld().dropItem(playerLocation, result);
-            droppedItem.setThrower(event.getWhoClicked().getUniqueId());
-            droppedItem.setPickupDelay(40);
-        } else if (event.getClick().equals(ClickType.CONTROL_DROP)) {
-            var playerLocation = event.getWhoClicked().getLocation();
-            var droppedItem = playerLocation.getWorld().dropItem(playerLocation, result.asQuantity(item.getAmount()));
-            droppedItem.setThrower(event.getWhoClicked().getUniqueId());
-            droppedItem.setPickupDelay(40);
-            left = 0;
         } else {
             var cursor = event.getCursor();
             if (cursor == null || cursor.getType().equals(Material.AIR)) { // Empty cursor
@@ -101,7 +96,8 @@ public final class ItemSigning extends JavaPlugin implements Listener {
         }
         var location = event.getInventory().getLocation();
         if (location != null) {
-            location.getWorld().playSound(location, Sound.BLOCK_SMITHING_TABLE_USE, SoundCategory.BLOCKS, 1, 1);
+            location.getWorld().playSound(location, Sound.ITEM_BOOK_PAGE_TURN, SoundCategory.BLOCKS, 1, 1);
         }
+        event.setCancelled(true);
     }
 }
