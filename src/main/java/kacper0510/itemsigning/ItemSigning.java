@@ -55,10 +55,7 @@ public final class ItemSigning extends JavaPlugin implements Listener {
             event.getInventory().setRepairCost(0);
         } catch (SignatureBook.SignatureException ex) {
             event.getView().getPlayer().sendActionBar(ex.getMessageAsComponent());
-            event.setResult(null);
-        } catch (InstantiationException ignored) { // Not a book
-            event.setResult(null);
-        }
+        } catch (InstantiationException ignored) {} // Not a book
     }
 
     // Inspired by https://github.com/WolfyScript/CustomCrafting/blob/master/src/main/java/me/wolfyscript/customcrafting/listeners/AnvilListener.java
